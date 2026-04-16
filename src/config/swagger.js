@@ -9,7 +9,7 @@ const options = {
       version: "1.0.0",
       description: "Multi-tenant email automation SaaS API"
     },
-    servers: [{ url: "http://localhost:4000/api/v1" }],
+    servers: [{ url: "https://klbsmtp.kalaburagitech.com/api/v1" }],
     components: {
       securitySchemes: {
         bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
