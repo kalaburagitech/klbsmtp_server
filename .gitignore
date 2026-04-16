@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Environment (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Prisma
+# Keep migrations; ignore local DB files if any
+*.db
+*.db-journal
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.tgz
+.cache/

@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  apiKey      String           @unique
+  dailyLimit  Int              @default(100)
+  status      String           @default("active")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  emailLogs   EmailLog[]
+  dailyCounts EmailDailyCount[]
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("admin")
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model EmailLog {
+  id             String         @id @default(cuid())
+  orgId          String
+  email          String
+  subject        String
+  body           String
+  status         String
+  errorMessage   String?
+  attempts       Int            @default(0)
+  attachments    Json?
+  metadata       Json?
+  timestamp      DateTime       @default(now())
+  createdAt      DateTime       @default(now()) // keep for existing UI sort compatibility
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+}
+
+model EmailDailyCount {
+  id             String         @id @default(cuid())
+  organizationId String
+  date           DateTime
+  sentCount      Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, date])
+}
