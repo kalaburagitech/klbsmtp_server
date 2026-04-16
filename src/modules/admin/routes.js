@@ -5,8 +5,12 @@ const authJwt = require("../../middleware/authJwt");
 const validate = require("../../middleware/validate");
 const asyncHandler = require("../../utils/asyncHandler");
 const { loginAdmin } = require("../../services/adminService");
-const { createOrganization, listOrganizations } = require("../../services/organizationService");
-const { getTodayUtcDate } = require("../../services/limitService");
+const {
+  createOrganization,
+  listOrganizations,
+  updateOrganizationControls
+} = require("../../services/organizationService");
+const { getTodayDateRange } = require("../../services/limitService");
 
 const router = express.Router();
 
@@ -17,9 +21,16 @@ const loginSchema = Joi.object({
 
 const createOrgSchema = Joi.object({
   name: Joi.string().min(2).required(),
+  contactName: Joi.string().min(2).required(),
+  contactEmail: Joi.string().email().required(),
   dailyLimit: Joi.number().integer().min(1).max(100000).default(100),
   status: Joi.string().valid("active", "inactive").default("active")
 });
+
+const orgControlSchema = Joi.object({
+  isBlocked: Joi.boolean().optional(),
+  allowOverLimitOverride: Joi.boolean().optional()
+}).or("isBlocked", "allowOverLimitOverride");
 
 /**
  * @swagger
@@ -79,6 +90,8 @@ router.post(
  *             required: [name]
  *             properties:
  *               name: { type: string }
+ *               contactName: { type: string }
+ *               contactEmail: { type: string, format: email }
  *               dailyLimit: { type: integer, example: 100 }
  *               status: { type: string, enum: [active, inactive] }
  *     responses:
@@ -111,8 +124,25 @@ router.get(
   "/orgs",
   authJwt,
   asyncHandler(async (req, res) => {
-    const organizations = await listOrganizations();
+    const organizations = await listOrganizations({
+      status: req.query.status,
+      blocked:
+        typeof req.query.blocked === "string"
+          ? req.query.blocked.toLowerCase() === "true"
+          : undefined,
+      search: req.query.search
+    });
     res.json(organizations);
+  })
+);
+
+router.patch(
+  "/orgs/:id/controls",
+  authJwt,
+  validate(orgControlSchema),
+  asyncHandler(async (req, res) => {
+    const updated = await updateOrganizationControls(req.params.id, req.body);
+    res.json(updated);
   })
 );
 
@@ -132,14 +162,29 @@ router.get(
   "/logs",
   authJwt,
   asyncHandler(async (req, res) => {
+    const where = {};
+    if (req.query.orgId) where.orgId = req.query.orgId;
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.email) {
+      where.email = { contains: req.query.email, mode: "insensitive" };
+    }
+    if (req.query.from || req.query.to) {
+      where.timestamp = {};
+      if (req.query.from) where.timestamp.gte = new Date(req.query.from);
+      if (req.query.to) where.timestamp.lte = new Date(req.query.to);
+    }
+
     const logs = await prisma.emailLog.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       take: 500,
       include: { organization: { select: { name: true } } }
     });
+
+    const { start, end } = getTodayDateRange();
     const emailsSentToday = await prisma.emailDailyCount.aggregate({
       _sum: { sentCount: true },
-      where: { date: getTodayUtcDate() }
+      where: { date: { gte: start, lt: end } }
     });
     res.json({
       emailsSentToday: emailsSentToday._sum.sentCount || 0,
@@ -161,14 +206,20 @@ router.get(
   "/stats",
   authJwt,
   asyncHandler(async (req, res) => {
-    const [totalOrgs, sentToday] = await Promise.all([
+    const { start, end } = getTodayDateRange();
+    const [totalOrgs, blockedOrgs, sentToday] = await Promise.all([
       prisma.organization.count(),
+      prisma.organization.count({ where: { isBlocked: true } }),
       prisma.emailDailyCount.aggregate({
         _sum: { sentCount: true },
-        where: { date: getTodayUtcDate() }
+        where: { date: { gte: start, lt: end } }
       })
     ]);
-    res.json({ totalOrgs, emailsSentToday: sentToday._sum.sentCount || 0 });
+    res.json({
+      totalOrgs,
+      blockedOrgs,
+      emailsSentToday: sentToday._sum.sentCount || 0
+    });
   })
 );
 

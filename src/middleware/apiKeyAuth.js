@@ -11,6 +11,9 @@ async function apiKeyAuth(req, res, next) {
   if (organization.status !== "active") {
     return res.status(403).json({ message: "Organization is inactive" });
   }
+  if (organization.isBlocked) {
+    return res.status(403).json({ message: "Organization is blocked by admin" });
+  }
 
   req.org = organization;
   req.organization = organization;

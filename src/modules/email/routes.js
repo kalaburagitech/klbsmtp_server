@@ -99,12 +99,13 @@ router.post(
   asyncHandler(async (req, res) => {
     const result = await queueEmails(req.org, req.body);
     if (!result.allowed) {
-      return res.status(403).json({ error: result.message });
+      return res.status(403).json({ error: result.message, state: result.state || "blocked" });
     }
     return res.status(200).json({
       message: "Emails queued",
       warning: result.warning ? result.warningMessage : null,
-      queued: result.queued
+      queued: result.queued,
+      state: result.state || "normal"
     });
   })
 );

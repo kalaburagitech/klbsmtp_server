@@ -11,8 +11,14 @@ model Organization {
   id          String            @id @default(cuid())
   name        String            @unique
   apiKey      String            @unique
+  contactName String?
+  contactEmail String?
   dailyLimit  Int               @default(100)
   status      String            @default("active")
+  isBlocked   Boolean           @default(false)
+  allowOverLimitOverride Boolean @default(false)
+  lastHalfAlertAt DateTime?
+  lastFullAlertAt DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   dailyCounts EmailDailyCount[]

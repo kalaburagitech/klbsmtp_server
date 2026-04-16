@@ -2,6 +2,7 @@ const Joi = require("joi");
 const prisma = require("../config/prisma");
 const { emailQueue } = require("../queue/emailQueue");
 const { checkEmailLimit } = require("./limitService");
+const { sendEmail } = require("./emailService");
 
 const emailItemSchema = Joi.object({
   to: Joi.string().email().required(),
@@ -29,6 +30,27 @@ function dedupeEmails(items) {
   });
 }
 
+async function sendUsageAlertEmail(organization, kind, usage) {
+  if (!organization.contactEmail) return;
+
+  const subject =
+    kind === "full"
+      ? `[${organization.name}] Daily email limit reached`
+      : `[${organization.name}] 50% daily email usage reached`;
+  const html = `
+    <p>Hello ${organization.contactName || "Team"},</p>
+    <p>Your organization <strong>${organization.name}</strong> has reached <strong>${kind === "full" ? "100%" : "50%"}</strong> of its daily sending limit.</p>
+    <p>Usage: <strong>${usage.projected}/${usage.dailyLimit}</strong></p>
+    <p>If you need higher limits, contact the platform administrator.</p>
+  `;
+
+  await sendEmail({
+    to: organization.contactEmail,
+    subject,
+    html
+  });
+}
+
 async function queueEmails(organization, payload) {
   const normalizedItems = Array.isArray(payload.emails)
     ? payload.emails
@@ -46,7 +68,11 @@ async function queueEmails(organization, payload) {
 
   const deduped = dedupeEmails(validated);
   const limitCheck = await checkEmailLimit(organization.id, deduped.length, {
-    dailyLimit: organization.dailyLimit
+    dailyLimit: organization.dailyLimit,
+    isBlocked: organization.isBlocked,
+    allowOverLimitOverride: organization.allowOverLimitOverride,
+    lastHalfAlertAt: organization.lastHalfAlertAt,
+    lastFullAlertAt: organization.lastFullAlertAt
   });
 
   if (!limitCheck.allowed) {
@@ -57,6 +83,24 @@ async function queueEmails(organization, payload) {
       queued: 0,
       deduplicatedFrom: validated.length
     };
+  }
+
+  if (limitCheck.shouldSendHalfAlert || limitCheck.shouldSendFullAlert) {
+    const updates = {};
+    if (limitCheck.shouldSendHalfAlert) updates.lastHalfAlertAt = new Date();
+    if (limitCheck.shouldSendFullAlert) updates.lastFullAlertAt = new Date();
+
+    await prisma.organization.update({
+      where: { id: organization.id },
+      data: updates
+    });
+
+    if (limitCheck.shouldSendHalfAlert) {
+      await sendUsageAlertEmail(organization, "half", limitCheck);
+    }
+    if (limitCheck.shouldSendFullAlert) {
+      await sendUsageAlertEmail(organization, "full", limitCheck);
+    }
   }
 
   await Promise.all(
@@ -76,7 +120,8 @@ async function queueEmails(organization, payload) {
     queued: deduped.length,
     deduplicatedFrom: validated.length,
     warning: limitCheck.warning,
-    warningMessage: limitCheck.warning ? limitCheck.message : ""
+    warningMessage: limitCheck.warning ? limitCheck.message : "",
+    state: limitCheck.state
   };
 }
 

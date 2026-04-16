@@ -25,46 +25,114 @@ async function getTodayEmailCount(orgId) {
   });
 }
 
+function isSameUtcDay(dateA, dateB) {
+  if (!dateA || !dateB) return false;
+  return (
+    dateA.getUTCFullYear() === dateB.getUTCFullYear() &&
+    dateA.getUTCMonth() === dateB.getUTCMonth() &&
+    dateA.getUTCDate() === dateB.getUTCDate()
+  );
+}
+
 async function checkEmailLimit(orgId, emailCountRequested, options = {}) {
   const dailyLimit = options.dailyLimit || 100;
+  const isBlocked = Boolean(options.isBlocked);
+  const allowOverLimitOverride = Boolean(options.allowOverLimitOverride);
+  const lastHalfAlertAt = options.lastHalfAlertAt ? new Date(options.lastHalfAlertAt) : null;
+  const lastFullAlertAt = options.lastFullAlertAt ? new Date(options.lastFullAlertAt) : null;
   const todayCount = await getTodayEmailCount(orgId);
   const projected = todayCount + emailCountRequested;
-  const isSingleRequest = emailCountRequested === 1;
+  const halfLimit = Math.ceil(dailyLimit * 0.5);
+  const today = getTodayUtcDate();
 
-  if (todayCount >= dailyLimit || projected > dailyLimit) {
-    if (isSingleRequest) {
-      return {
-        allowed: true,
-        warning: true,
-        message: "Limit exceeded, but single email allowed.",
-        sentToday: todayCount,
-        dailyLimit
-      };
-    }
+  if (isBlocked) {
     return {
       allowed: false,
       warning: false,
-      message: `Daily limit reached (${dailyLimit} emails). Sending blocked.`,
+      state: "blocked",
+      message: "Organization sending is blocked by admin.",
       sentToday: todayCount,
-      dailyLimit
+      projected,
+      dailyLimit,
+      shouldSendHalfAlert: false,
+      shouldSendFullAlert: false
     };
   }
 
-  if (projected >= 50) {
+  if (projected > dailyLimit && !allowOverLimitOverride) {
+    return {
+      allowed: false,
+      warning: false,
+      state: "blocked",
+      message: `Daily limit reached (${dailyLimit} emails). Sending blocked.`,
+      sentToday: todayCount,
+      projected,
+      dailyLimit,
+      shouldSendHalfAlert: false,
+      shouldSendFullAlert: false
+    };
+  }
+
+  const shouldSendHalfAlert =
+    projected >= halfLimit &&
+    todayCount < halfLimit &&
+    !isSameUtcDay(lastHalfAlertAt, today);
+  const shouldSendFullAlert =
+    projected >= dailyLimit &&
+    todayCount < dailyLimit &&
+    !isSameUtcDay(lastFullAlertAt, today);
+
+  if (shouldSendFullAlert) {
     return {
       allowed: true,
       warning: true,
-      message: `You have reached 50 emails. Daily limit is ${dailyLimit}.`,
+      state: "fullReached",
+      message: `Daily limit reached (${dailyLimit}/${dailyLimit}).`,
       sentToday: todayCount,
-      dailyLimit
+      projected,
+      dailyLimit,
+      shouldSendHalfAlert,
+      shouldSendFullAlert
+    };
+  }
+
+  if (shouldSendHalfAlert) {
+    return {
+      allowed: true,
+      warning: true,
+      state: "halfReached",
+      message: `You reached 50% usage (${projected}/${dailyLimit}).`,
+      sentToday: todayCount,
+      projected,
+      dailyLimit,
+      shouldSendHalfAlert,
+      shouldSendFullAlert
+    };
+  }
+
+  if (projected >= dailyLimit) {
+    return {
+      allowed: true,
+      warning: true,
+      state: "fullReached",
+      message: `Daily limit is at capacity (${projected}/${dailyLimit}).`,
+      sentToday: todayCount,
+      projected,
+      dailyLimit,
+      shouldSendHalfAlert: false,
+      shouldSendFullAlert: false
     };
   }
 
   return {
     allowed: true,
     warning: false,
+    state: "normal",
     message: "",
     sentToday: todayCount,
+    projected,
+    shouldSendHalfAlert: false,
+    shouldSendFullAlert: false,
     dailyLimit
   };
 }

@@ -49,7 +49,11 @@ router.get(
       organization: {
         id: req.org.id,
         name: req.org.name,
-        status: req.org.status
+        status: req.org.status,
+        contactName: req.org.contactName,
+        contactEmail: req.org.contactEmail,
+        isBlocked: req.org.isBlocked,
+        allowOverLimitOverride: req.org.allowOverLimitOverride
       },
       stats: {
         totalEmails,
