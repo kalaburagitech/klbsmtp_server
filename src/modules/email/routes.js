@@ -102,7 +102,7 @@ router.post(
       return res.status(403).json({ error: result.message, state: result.state || "blocked" });
     }
     return res.status(200).json({
-      message: "Emails queued",
+      message: result.mode === "redis" ? "Emails queued" : "Emails sent",
       warning: result.warning ? result.warningMessage : null,
       queued: result.queued,
       state: result.state || "normal"

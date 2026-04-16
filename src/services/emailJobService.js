@@ -3,6 +3,7 @@ const prisma = require("../config/prisma");
 const { emailQueue } = require("../queue/emailQueue");
 const { checkEmailLimit } = require("./limitService");
 const { sendEmail } = require("./emailService");
+const env = require("../config/env");
 
 const emailItemSchema = Joi.object({
   to: Joi.string().email().required(),
@@ -103,17 +104,57 @@ async function queueEmails(organization, payload) {
     }
   }
 
-  await Promise.all(
-    deduped.map((item) =>
-      emailQueue.add("send-email", {
-        organizationId: organization.id,
-        to: item.to,
-        subject: item.subject,
-        html: item.html,
-        attachments: item.attachments || []
+  if (env.queueMode === "redis") {
+    await Promise.all(
+      deduped.map((item) =>
+        emailQueue.add("send-email", {
+          organizationId: organization.id,
+          to: item.to,
+          subject: item.subject,
+          html: item.html,
+          attachments: item.attachments || []
+        })
+      )
+    );
+  } else {
+    await Promise.all(
+      deduped.map(async (item) => {
+        try {
+          await sendEmail({
+            to: item.to,
+            subject: item.subject,
+            html: item.html,
+            attachments: item.attachments || []
+          });
+          await prisma.emailLog.create({
+            data: {
+              orgId: organization.id,
+              email: item.to,
+              subject: item.subject,
+              body: item.html,
+              status: "success",
+              attempts: 1,
+              attachments: item.attachments || []
+            }
+          });
+        } catch (error) {
+          await prisma.emailLog.create({
+            data: {
+              orgId: organization.id,
+              email: item.to,
+              subject: item.subject,
+              body: item.html,
+              status: "failed",
+              attempts: 1,
+              errorMessage: error.message,
+              attachments: item.attachments || []
+            }
+          });
+          throw error;
+        }
       })
-    )
-  );
+    );
+  }
 
   return {
     allowed: true,
@@ -121,7 +162,8 @@ async function queueEmails(organization, payload) {
     deduplicatedFrom: validated.length,
     warning: limitCheck.warning,
     warningMessage: limitCheck.warning ? limitCheck.message : "",
-    state: limitCheck.state
+    state: limitCheck.state,
+    mode: env.queueMode
   };
 }
 
